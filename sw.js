@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mercadomanu-v1';
+const CACHE_NAME = 'mercado-manu-v2';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -37,10 +37,7 @@ self.addEventListener('fetch', (e) => {
         return cachedResponse;
       }
       return fetch(e.request).catch(() => {
-        // Retorna index.html en fallos de navegación sin red
-        if (e.request.mode === 'navigate') {
-          return caches.match('./index.html');
-        }
+        // Retorno seguro si no hay internet
       });
     })
   );
