@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Mercado Manu - Asistente de Compras con IA</title>
-  <link rel="manifest" href="manifest.json">
+  <link rel="manifest" href="./manifest.json">
   <meta name="theme-color" content="#e8edf8">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -54,16 +54,17 @@
       -webkit-tap-highlight-color: transparent;
     }
     html { 
-      height: 100%;
-      overscroll-behavior-y: none; /* Inhabilita el pull-to-refresh en la raíz */
+      height: 100%; 
+      overscroll-behavior: none;
+      overscroll-behavior-y: none;
     }
     body {
       background: var(--bg);
       font-family: 'Nunito', sans-serif;
       overflow-x: hidden;
       overflow-y: auto;
-      overscroll-behavior-y: none; /* Evita rebotes y recarga al deslizar verticalmente */
-      touch-action: pan-x pan-y;
+      overscroll-behavior: none;
+      overscroll-behavior-y: none;
       padding: 12px 12px 170px;
       color: var(--text);
       transition: background .3s, color .3s;
@@ -82,7 +83,19 @@
     }
     body.light::before { opacity: .3; }
 
-    /* Splash Screen */
+    /* Banner para instalar PWA */
+    #pwaInstallBanner {
+      display: none;
+      background: linear-gradient(135deg, #7209b7, #00b4d8);
+      color: white;
+      padding: 12px 16px;
+      border-radius: 16px;
+      margin-bottom: 12px;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    }
+
     #splash-screen {
       position: fixed;
       inset: 0;
@@ -574,6 +587,12 @@
 </head>
 <body class="light">
 
+  <!-- Banner para Instalación como Aplicación -->
+  <div id="pwaInstallBanner">
+    <span style="font-size:12px;font-weight:900">📲 ¡Instala Mercado Manu como App!</span>
+    <button id="btnPwaInstall" style="background:white;color:#7209b7;border:none;padding:6px 12px;border-radius:10px;font-weight:900;font-size:11px;cursor:pointer">Instalar</button>
+  </div>
+
   <!-- Splash Screen -->
   <div id="splash-screen">
     <div class="splash-logo-container">
@@ -826,24 +845,54 @@
   </nav>
 
   <script>
-    // BLOQUEO JS DEL GESTO "PULL-TO-REFRESH"
-    window.addEventListener('touchstart', function(e) {
-      if (e.touches.length !== 1) return;
-      window.pageYOffsetAtTouchStart = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
-    }, { passive: true });
+    // Registro del Service Worker para funcionamiento como App PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('./sw.js').then(function(reg) {
+          console.log('SW registrado con éxito:', reg.scope);
+        }).catch(function(err) {
+          console.warn('Error al registrar SW:', err);
+        });
+      });
+    }
 
-    window.addEventListener('touchmove', function(e) {
-      var currentY = e.touches[0].clientY;
-      var scrollTop = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
-      if (scrollTop <= 0 && currentY > 0) {
-        // Bloquear recarga si se intenta deslizar estando arriba del todo
-        if (e.cancelable) e.preventDefault();
+    // Lógica para interceptar la instalación de la App
+    var deferredPrompt;
+    window.addEventListener('beforeinstallprompt', function(e) {
+      e.preventDefault();
+      deferredPrompt = e;
+      var banner = document.getElementById('pwaInstallBanner');
+      if (banner) banner.style.display = 'flex';
+    });
+
+    document.getElementById('btnPwaInstall').addEventListener('click', function() {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then(function(choiceResult) {
+          if (choiceResult.outcome === 'accepted') {
+            document.getElementById('pwaInstallBanner').style.display = 'none';
+          }
+          deferredPrompt = null;
+        });
+      }
+    });
+
+    // Bloqueo explícito de Pull-to-Refresh por JS
+    var lastTouchY = 0;
+    document.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 1) {
+        lastTouchY = e.touches[0].clientY;
       }
     }, { passive: false });
 
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(function(){});
-    }
+    document.addEventListener('touchmove', function(e) {
+      var touchY = e.touches[0].clientY;
+      var touchDiff = touchY - lastTouchY;
+
+      if (window.scrollY === 0 && touchDiff > 0) {
+        e.preventDefault();
+      }
+    }, { passive: false });
 
     // Splash Screen
     setTimeout(function(){
@@ -1755,7 +1804,6 @@
             lastParsedEntities = parsed;
             renderVoicePreview(parsed);
 
-            // Auto-agregar si se detectaron productos válidos con precio
             clearTimeout(voiceAutoApplyTimer);
             if (isFinal && parsed.products.length > 0) {
               voiceAutoApplyTimer = setTimeout(function() {
@@ -1875,19 +1923,15 @@
     function normalizeVoiceText(text) {
       if (!text) return '';
       var s = text.toLowerCase();
-      // Quitar tildes pero PRESERVAR comas y puntos que forman números
       s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-      // Reemplazo de palabras de moneda
       s = s.replace(/\bverdes?\b/g, 'dolares');
       s = s.replace(/\bbolos?\b/g, 'bolivares');
       s = s.replace(/\bsoberanos?\b/g, 'bolivares');
       s = s.replace(/\bbs\b/g, 'bolivares');
 
-      // Convertir "1,18" o "1.18" a estándar "1.18"
       s = s.replace(/([0-9]+)[,\.]([0-9]{1,2})/g, '$1.$2');
 
-      // Convertir "1 con 18", "1 y 18", "uno con dieciocho", "uno punto 18", "uno coma 18" -> "1.18"
       s = s.replace(/\b([0-9]+|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|veinte|treinta)\s+(?:con|coma|punto|y)\s+([0-9]{1,2}|dieciocho|diecinueve|diecisiete|dieciseis|quince|catorce|trece|doce|once|diez|veinte|veinticinco|cincuenta)\b/g, function(m, p1, p2) {
         var n1 = NUM_WORDS[p1] !== undefined ? NUM_WORDS[p1] : parseInt(p1);
         var n2 = NUM_WORDS[p2] !== undefined ? NUM_WORDS[p2] : parseInt(p2);
@@ -1898,7 +1942,6 @@
         return m;
       });
 
-      // Convertir "y medio" -> ".50"
       s = s.replace(/\b([0-9]+)\s+y\s+medio\b/g, '$1.50');
       s = s.replace(/\b(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+y\s+medio\b/g, function(m, p1) {
         return (NUM_WORDS[p1] || 1) + '.50';
@@ -1911,7 +1954,6 @@
       var norm = normalizeVoiceText(rawText);
       var currentRate = parseFloat(document.getElementById('tasa').value.replace(',', '.')) || 1;
 
-      // 1. Detección de Comandos Rápidos
       if (norm.indexOf('vaciar carrito') !== -1 || norm.indexOf('limpiar carrito') !== -1) {
         vaciarTodo();
         speakFeedback("Carrito vaciado");
@@ -1935,11 +1977,9 @@
         return null;
       }
 
-      // 2. Detección de Local / Tienda
       var detectedLoc = "";
       var allKnownLocs = LF.concat(gDB('locs_v1')).filter(function(x, i, a){ return a.indexOf(x) === i; });
 
-      // Coincidencia exacta con lista de locales conocidos (ej: "MARAPLUS", "UNICASA", "FORUM", etc.)
       for (var i = 0; i < allKnownLocs.length; i++) {
         var candidate = allKnownLocs[i].toLowerCase();
         if (new RegExp('\\b' + candidate + '\\b', 'i').test(norm)) {
@@ -1948,7 +1988,6 @@
         }
       }
 
-      // Si no está en la lista pero dice "estoy en [el local / mercado / abasto] X"
       if (!detectedLoc) {
         var locRegex = /(?:estoy en|en el local|en el mercado|en el supermercado|en el abasto|en la tienda|en)\s+([a-zA-Z0-9'\s]+?)(?:\s+(?:el|la|los|las|y|comprando|llevando|un|una|con|para)\b|$)/i;
         var mLoc = norm.match(locRegex);
@@ -1964,8 +2003,6 @@
         detectedLoc = document.getElementById('loc').value.toUpperCase().trim() || 'GENERAL';
       }
 
-      // 3. Extracción Inteligente de Productos, Cantidades y Precios
-      // Limpiamos el texto removiendo la parte del local detectado para no interferir
       var workingText = norm;
       if (detectedLoc) {
         workingText = workingText.replace(new RegExp('(?:estoy en|en el local|en el mercado|en el supermercado|en)\\s*' + detectedLoc.toLowerCase(), 'gi'), '');
@@ -1974,15 +2011,13 @@
 
       var parsedProducts = [];
 
-      // ESTRATEGIA A: Búsqueda anclada en catálogo conocido (ej: "ARROZ PRIMOR", "HARINA PAN", etc.)
       var catalogSorted = VP.concat(Object.keys(EM)).filter(function(x, i, a){ return a.indexOf(x) === i; })
-                            .sort(function(a, b){ return b.length - a.length; }); // Los más largos primero
+                            .sort(function(a, b){ return b.length - a.length; });
 
       catalogSorted.forEach(function(knownProd) {
         var prodLower = knownProd.toLowerCase();
         var prodIdx = workingText.indexOf(prodLower);
         if (prodIdx !== -1) {
-          // Buscar el precio asociado inmediatamente después o antes del producto
           var afterText = workingText.substring(prodIdx + prodLower.length);
           var priceMatch = afterText.match(/(?:que me vale|que vale|me vale|vale|cuesta|costo|a|por|en|precio)?\s*([0-9]+(?:\.[0-9]+)?)\s*(dolares|bolivares|\$)?/i);
 
@@ -1992,7 +2027,6 @@
             var cur = curStr.indexOf('bolivar') !== -1 ? 'BS' : (curStr.indexOf('dolar') !== -1 || curStr === '$' ? 'USD' : mon);
 
             if (priceNum > 0) {
-              // Buscar cantidad antes del producto
               var beforeText = workingText.substring(0, prodIdx).trim();
               var qty = 1;
               var qtyMatch = beforeText.match(/\b(un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|[0-9]+)$/i);
@@ -2013,14 +2047,12 @@
                 rawPrice: priceNum
               });
 
-              // Remover este fragmento para que no se duplique
               workingText = workingText.replace(prodLower, ' ').replace(priceMatch[0], ' ');
             }
           }
         }
       });
 
-      // ESTRATEGIA B: Segmentos gramaticales para productos nuevos que no estén en el catálogo
       var segments = workingText.split(/\b(?:y luego|ademas|tambien|\by\b|,)\b/gi);
       segments.forEach(function(seg) {
         seg = seg.trim();
